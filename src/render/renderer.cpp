@@ -163,6 +163,9 @@ glm::vec4 Renderer::traceRayMIP(const Ray& ray, float sampleStep) const
         maxVal = std::max(val, maxVal);
     }
 
+    glm::vec3 test1 = glm::vec3(maxVal);
+    glm::vec3 test2 = glm::vec3(maxVal) / m_pVolume->maximum();
+
     // Normalize the result to a range of [0 to mpVolume->maximum()].
     return glm::vec4(glm::vec3(maxVal) / m_pVolume->maximum(), 1.0f);
 }
@@ -176,6 +179,8 @@ glm::vec4 Renderer::traceRayMIP(const Ray& ray, float sampleStep) const
 glm::vec4 Renderer::traceRayISO(const Ray& ray, float sampleStep) const
 {
     static constexpr glm::vec3 isoColor { 0.8f, 0.8f, 0.2f };
+
+    
     return glm::vec4(isoColor, 1.0f);
 }
 
@@ -193,7 +198,27 @@ float Renderer::bisectionAccuracy(const Ray& ray, float t0, float t1, float isoV
 // Use getTFValue to compute the color for a given volume value according to the 1D transfer function.
 glm::vec4 Renderer::traceRayComposite(const Ray& ray, float sampleStep) const
 {
-    return glm::vec4(0.0f);
+    //initialize the sample position to the beginning of the volume
+    glm::vec3 samplePos = ray.origin + ray.tmin * ray.direction;
+
+    //compute the size of the increment for each step
+    const glm::vec3 increment = sampleStep * ray.direction;
+
+    //initialize the accumulated color and opacity
+    glm::vec4 comp_col = glm::vec4(0.0f);
+
+    //for every sample, accumulate the opacity and color
+    for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+        const float val = m_pVolume->getVoxelInterpolate(samplePos);
+        glm::vec4 color = getTFValue(val);
+
+        comp_col.r = comp_col.r + (1.0 - comp_col.a) * color.a * color.r;
+        comp_col.g = comp_col.g + (1.0 - comp_col.a) * color.a * color.g;
+        comp_col.b = comp_col.b + (1.0 - comp_col.a) * color.a * color.b;
+        comp_col.a = comp_col.a + (1.0 - comp_col.a) * color.a;
+    }
+    
+    return comp_col;
 }
 
 // ======= TODO: IMPLEMENT ========
