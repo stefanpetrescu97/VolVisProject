@@ -179,9 +179,38 @@ glm::vec4 Renderer::traceRayMIP(const Ray& ray, float sampleStep) const
 glm::vec4 Renderer::traceRayISO(const Ray& ray, float sampleStep) const
 {
     static constexpr glm::vec3 isoColor { 0.8f, 0.8f, 0.2f };
-
     
-    return glm::vec4(isoColor, 1.0f);
+    float isoValCurrent = m_config.isoValue;
+    bool found = false;
+
+    //position of intersection
+    glm::vec3 intersectionSample = sampleStep * ray.direction;
+
+    glm::vec3 samplePos = ray.origin + ray.tmin * ray.direction;
+    const glm::vec3 increment = sampleStep * ray.direction;
+    if(!m_config.volumeShading){
+        for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+            const float val = m_pVolume->getVoxelInterpolate(samplePos);
+            if(val > isoValCurrent){
+                found = true;
+                return glm::vec4(isoColor, 1.0f);
+            }
+        }
+        return glm::vec4(0.0f);
+    }else{
+    for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+        const float val = m_pVolume->getVoxelInterpolate(samplePos);
+        if(val > isoValCurrent){
+            intersectionSample = samplePos;
+        }
+    }
+    //
+    volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(intersectionSample);
+    return glm::vec4(computePhongShading(isoColor, gradient, m_pCamera->position(), m_pCamera->forward()), 1.0f);
+    //const glm::vec3& color, const volume::GradientVoxel& gradient, const glm::vec3& L, const glm::vec3& V)
+    //
+    //return glm::vec4(0.0f);
+    }
 }
 
 // ======= TODO: IMPLEMENT ========

@@ -110,6 +110,7 @@ GradientVoxel GradientVolume::getGradientVoxelNN(const glm::vec3& coord) const
     return getGradientVoxel(roundToPositiveInt(coord.x), roundToPositiveInt(coord.y), roundToPositiveInt(coord.z));
 }
 
+
 // ======= TODO : IMPLEMENT ========
 // Returns the trilinearly interpolated gradinet at the given coordinate.
 // Use the linearInterpolate function that you implemented below.
