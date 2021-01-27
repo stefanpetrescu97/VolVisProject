@@ -236,7 +236,15 @@ glm::vec4 Renderer::getTFValue(float val) const
 // The 2D transfer function settings can be accessed through m_config.TF2DIntensity and m_config.TF2DRadius.
 float Renderer::getTF2DOpacity(float intensity, float gradientMagnitude) const
 {
-    return 0.0f;
+    float radius = m_config.TF2DRadius;
+    float center = m_config.TF2DIntensity;
+    intensity = abs(intensity - center);
+    float res = 1.0f - (radius / intensity);
+    std::cout << res << std::endl;
+    if (res < 0.0f) {
+        return 0.0f;
+    }
+    return res;
 }
 
 // This function computes if a ray intersects with the axis-aligned bounding box around the volume.
