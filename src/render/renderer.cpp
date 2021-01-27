@@ -205,11 +205,11 @@ glm::vec4 Renderer::traceRayISO(const Ray& ray, float sampleStep) const
         }
     }
     //
-    volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(intersectionSample);
-    return glm::vec4(computePhongShading(isoColor, gradient, m_pCamera->position(), m_pCamera->forward()), 1.0f);
+    //volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(intersectionSample);
+    //return glm::vec4(computePhongShading(isoColor, gradient, m_pCamera->position(), m_pCamera->forward()), 1.0f);
     //const glm::vec3& color, const volume::GradientVoxel& gradient, const glm::vec3& L, const glm::vec3& V)
     //
-    //return glm::vec4(0.0f);
+    return glm::vec4(0.0f);
     }
 }
 
