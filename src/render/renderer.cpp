@@ -201,7 +201,27 @@ glm::vec4 Renderer::traceRayComposite(const Ray& ray, float sampleStep) const
 // Use the getTF2DOpacity function that you implemented to compute the opacity according to the 2D transfer function.
 glm::vec4 Renderer::traceRayTF2D(const Ray& ray, float sampleStep) const
 {
-    return glm::vec4(0.0f);
+    //initialize the sample position to the beginning of the volume
+    glm::vec3 samplePos = ray.origin + ray.tmin * ray.direction;
+
+    //compute the size of the increment for each step
+    const glm::vec3 increment = sampleStep * ray.direction;
+
+    //initialize the accumulated color and opacity
+    glm::vec4 comp_col = glm::vec4(0.0f);
+
+    //for every sample, accumulate the opacity
+    for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+        const float val = m_pVolume->getVoxelInterpolate(samplePos);
+        float opacity = getTF2DOpacity(val, 0.6f);
+
+        comp_col.a = opacity + (1.0f - opacity) * comp_col.a;
+        comp_col.r = (comp_col.a) * m_config.TF2DColor.r;
+        comp_col.g = (comp_col.a) * m_config.TF2DColor.g;
+        comp_col.b = (comp_col.a) * m_config.TF2DColor.b;
+    }
+
+    return comp_col;
 }
 
 // ======= TODO: IMPLEMENT ========
@@ -238,11 +258,14 @@ float Renderer::getTF2DOpacity(float intensity, float gradientMagnitude) const
 {
     float radius = m_config.TF2DRadius;
     float center = m_config.TF2DIntensity;
-    intensity = abs(intensity - center);
-    float res = 1.0f - (radius / intensity);
-    std::cout << res << std::endl;
-    if (res < 0.0f) {
+    intensity = 1 - abs(intensity - center);
+    float res = (radius / intensity);
+    // std::cout << res << std::endl;
+    if (res <= 1.0f - gradientMagnitude) {
         return 0.0f;
+    }
+    if (res >= 1.0f) {
+        return 1.0f;
     }
     return res;
 }
