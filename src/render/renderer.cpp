@@ -208,20 +208,21 @@ glm::vec4 Renderer::traceRayTF2D(const Ray& ray, float sampleStep) const
     const glm::vec3 increment = sampleStep * ray.direction;
 
     //initialize the accumulated color and opacity
-    glm::vec4 comp_col = glm::vec4(0.0f);
+    glm::vec4 comp_op = glm::vec4(0.0f);
 
     //for every sample, accumulate the opacity
     for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
         const float val = m_pVolume->getVoxelInterpolate(samplePos);
-        float opacity = getTF2DOpacity(val, 0.6f);
+        const float gradient = m_pVolume->getVoxelInterpolate(m_pGradientVolume->getGradientVoxel(samplePos));
+        float opacity = getTF2DOpacity(val, gradient);
 
-        comp_col.a = opacity + (1.0f - opacity) * comp_col.a;
-        comp_col.r = (comp_col.a) * m_config.TF2DColor.r;
-        comp_col.g = (comp_col.a) * m_config.TF2DColor.g;
-        comp_col.b = (comp_col.a) * m_config.TF2DColor.b;
+        comp_op.a = comp_op.a + (1.0f - comp_op.a) * opacity;
+        comp_op.r = comp_op.r + comp_op.a * opacity * m_config.TF2DColor.r;
+        comp_op.g = comp_op.g + comp_op.a * opacity * m_config.TF2DColor.g;
+        comp_op.b = comp_op.b + comp_op.a * opacity * m_config.TF2DColor.b;
     }
 
-    return comp_col;
+    return comp_op;
 }
 
 // ======= TODO: IMPLEMENT ========
@@ -258,14 +259,17 @@ float Renderer::getTF2DOpacity(float intensity, float gradientMagnitude) const
 {
     float radius = m_config.TF2DRadius;
     float center = m_config.TF2DIntensity;
-    intensity = 1 - abs(intensity - center);
-    float res = (radius / intensity);
-    // std::cout << res << std::endl;
-    if (res <= 1.0f - gradientMagnitude) {
+
+    float radiusatgradient = radius * (1.0f - gradientMagnitude);
+    if (intensity < center - radiusatgradient || intensity > center > radiusatgradient) {
         return 0.0f;
     }
-    if (res >= 1.0f) {
-        return 1.0f;
+
+    intensity = abs(intensity - center);
+    float res = 1.0f - (intensity/radius);
+
+    if (res <= 0.0f) {
+        return 0.0f;
     }
     return res;
 }
