@@ -10,6 +10,11 @@
 #include <tbb/parallel_for.h>
 #include <tuple>
 
+//new library added for normalization
+#include <glm/glm.hpp>
+
+//#include <glm>
+
 namespace render {
 
 // The renderer is passed a pointer to the volume, gradinet volume, camera and an initial renderConfig.
@@ -178,38 +183,47 @@ glm::vec4 Renderer::traceRayMIP(const Ray& ray, float sampleStep) const
 // Use the bisectionAccuracy function (to be implemented) to get a more precise isosurface location between two steps.
 glm::vec4 Renderer::traceRayISO(const Ray& ray, float sampleStep) const
 {
-    static constexpr glm::vec3 isoColor { 0.8f, 0.8f, 0.2f };
+    static constexpr glm::vec3 isoColor {0.8f, 0.8f, 0.2f};
     
+    //current selected iso value; this can change depending on user input
     float isoValCurrent = m_config.isoValue;
-    bool found = false;
 
-    //position of intersection
-    glm::vec3 intersectionSample = sampleStep * ray.direction;
+    //position of intersection: it means that at this location the value of the interpolated voxel is greater than the isoValue
+    glm::vec3 isoValueSample;
 
     glm::vec3 samplePos = ray.origin + ray.tmin * ray.direction;
     const glm::vec3 increment = sampleStep * ray.direction;
+
     if(!m_config.volumeShading){
+        //if volume shading is OFF
+        //sample along the ray until an isosurface
         for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
             const float val = m_pVolume->getVoxelInterpolate(samplePos);
             if(val > isoValCurrent){
-                found = true;
                 return glm::vec4(isoColor, 1.0f);
             }
         }
+        //if no surface found for which the interpolated voxel value is greater than the isovalue => the pixel is not on the surface
+        //return a pixel of 0 opacity
         return glm::vec4(0.0f);
     }else{
-    for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
-        const float val = m_pVolume->getVoxelInterpolate(samplePos);
-        if(val > isoValCurrent){
-            intersectionSample = samplePos;
+        //if volume shading is ON
+        //sample along the ray until an isosurface
+        for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+            const float val = m_pVolume->getVoxelInterpolate(samplePos);
+            if(val > isoValCurrent){
+                isoValueSample = samplePos;
+
+                //get the gradient at this position
+                volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(isoValueSample);
+
+                //return the shaded color
+                return glm::vec4(computePhongShading(isoColor, gradient, m_pCamera->forward(), ray.direction), 1.0f);
+            }
         }
-    }
-    //
-    //volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(intersectionSample);
-    //return glm::vec4(computePhongShading(isoColor, gradient, m_pCamera->position(), m_pCamera->forward()), 1.0f);
-    //const glm::vec3& color, const volume::GradientVoxel& gradient, const glm::vec3& L, const glm::vec3& V)
-    //
-    return glm::vec4(0.0f);
+        //if no surface found for which the interpolated voxel value is greater than the isovalue => the pixel is not on the surface
+        //return a pixel of 0 opacity
+        return glm::vec4(0.0f);
     }
 }
 
@@ -227,6 +241,8 @@ float Renderer::bisectionAccuracy(const Ray& ray, float t0, float t1, float isoV
 // Use getTFValue to compute the color for a given volume value according to the 1D transfer function.
 glm::vec4 Renderer::traceRayComposite(const Ray& ray, float sampleStep) const
 {
+    //refactored traceRayComposite() function in order to work with shading as well
+    
     //initialize the sample position to the beginning of the volume
     glm::vec3 samplePos = ray.origin + ray.tmin * ray.direction;
 
@@ -236,18 +252,58 @@ glm::vec4 Renderer::traceRayComposite(const Ray& ray, float sampleStep) const
     //initialize the accumulated color and opacity
     glm::vec4 comp_col = glm::vec4(0.0f);
 
-    //for every sample, accumulate the opacity and color
-    for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
-        const float val = m_pVolume->getVoxelInterpolate(samplePos);
-        glm::vec4 color = getTFValue(val);
-
-        comp_col.r = comp_col.r + (1.0 - comp_col.a) * color.a * color.r;
-        comp_col.g = comp_col.g + (1.0 - comp_col.a) * color.a * color.g;
-        comp_col.b = comp_col.b + (1.0 - comp_col.a) * color.a * color.b;
-        comp_col.a = comp_col.a + (1.0 - comp_col.a) * color.a;
-    }
+    if(!m_config.volumeShading){
+        //if volume shading is OFF
+        //for every sample, accumulate the opacity and color
+        for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+            const float val = m_pVolume->getVoxelInterpolate(samplePos);
+            glm::vec4 color = getTFValue(val);
+            comp_col.r = comp_col.r + (1.0 - comp_col.a) * color.a * color.r;
+            comp_col.g = comp_col.g + (1.0 - comp_col.a) * color.a * color.g;
+            comp_col.b = comp_col.b + (1.0 - comp_col.a) * color.a * color.b;
+            comp_col.a = comp_col.a + (1.0 - comp_col.a) * color.a;
+        }
     
-    return comp_col;
+        return comp_col;
+
+    }else{
+        //if volume shading is ON
+        for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+
+            //get the current val for the voxel
+            const float val = m_pVolume->getVoxelInterpolate(samplePos);
+
+            //use the TF to get the color
+            glm::vec4 color = getTFValue(val);
+
+            //get the gradient at the sample position
+            volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(samplePos);
+
+            //check if its magnitude is smaller than a certain threshold (so for example if the gradient.magnitude is smaller than 0.0001 I consider it 0)
+            if(gradient.magnitude < 0.0001){
+                gradient.magnitude = 0;
+            }
+
+            //construct color vec3 in order to pass as parameter (as the current color vector is v4)
+            glm::vec3 paramColorForShading(color.r, color.g, color.b);
+
+            //get the shaded color by calling the computePhongShading (as the first two params I pass the previously computed gradient and the previously computed color)
+            glm::vec3 shadedColor = computePhongShading(paramColorForShading, gradient, m_pCamera->forward(), ray.direction);
+            
+            //construct the shaded color, using the returned shaded RGB colors and also the previous color.a
+            glm::vec4 finalShadedColor(shadedColor, color.a);
+
+            color = finalShadedColor;
+
+            //composite using the color returned by the computePhongShading function
+            comp_col.r = comp_col.r + (1.0 - comp_col.a) * color.a * color.r;
+            comp_col.g = comp_col.g + (1.0 - comp_col.a) * color.a * color.g;
+            comp_col.b = comp_col.b + (1.0 - comp_col.a) * color.a * color.b;
+            comp_col.a = comp_col.a + (1.0 - comp_col.a) * color.a;
+
+        }
+        return comp_col;
+    }
 }
 
 // ======= TODO: IMPLEMENT ========
@@ -267,7 +323,74 @@ glm::vec4 Renderer::traceRayTF2D(const Ray& ray, float sampleStep) const
 // You are free to choose any specular power that you'd like.
 glm::vec3 Renderer::computePhongShading(const glm::vec3& color, const volume::GradientVoxel& gradient, const glm::vec3& L, const glm::vec3& V)
 {
-    return glm::vec3(0.0f);
+    //if no gradient magnitude return transparent
+    if(gradient.magnitude == 0){
+        return glm::vec3(0);
+    }
+
+    //reflectiveness constants
+    float ka = 0.1f;//ambient
+    float kd = 0.7f;//diffuse
+    float ks = 0.2f;//specular
+    float a = 100;
+    //formula implemented:
+    //intensity = ka*ia + kd*(L^ dot N^ )*id + ks*(r^ dot v^)^a*is;
+
+    //set the colors; compute the 3 bands separately
+    float ir = (float) color.r;
+    float ig = (float) color.g;
+    float ib = (float) color.b;
+    
+
+    //setup the necessary variables
+    glm::vec3 toLight((float) -L[0], (float) -L[1], (float) -L[2]);
+    glm::vec3 toLightN = glm::normalize(toLight);
+
+    glm::vec3 toView((float) -V[0], (float) -V[1], (float) -V[2]);
+    glm::vec3 toViewN = glm::normalize(toView);
+
+    glm::vec3 normal((float) -gradient.dir.x, (float) -gradient.dir.y, (float) -gradient.dir.z);
+    //glm::vec3 normalN = normal/gradient.magnitude;
+    glm::vec3 normalN = glm::normalize(normal);
+
+    //compute light reflection
+    float dotp = glm::dot(toLightN, normalN);
+    glm::vec3 scaled = normalN * (2*dotp);
+
+    // rN is the the direction taken by a perfect reflection of the light source on the surface
+    glm::vec3 rN = scaled - toLightN;
+
+    //store ambient color
+    float r_ambient = ka * ir;
+    float g_ambient = ka * ig;
+    float b_ambient = ka * ib;
+
+    //check if normal is in correct direction, if light is orthogonal(or larger angle) to the surface only use ambient lighting
+    if(glm::atan(glm::acos(glm::dot(toLight, normal))) >= 90){
+        return glm::vec3(r_ambient,g_ambient,b_ambient);
+    }
+
+    //store diffuse color
+    float r_diffuse = kd * glm::dot(toLightN, normalN) * ir;
+    float g_diffuse = kd * glm::dot(toLightN, normalN) * ig;
+    float b_diffuse = kd * glm::dot(toLightN, normalN) * ib;
+
+    //final step in computing the specular light reflection
+    float specPow =  (float) pow(glm::dot(rN, toViewN), a);
+    //store specular color
+    float r_specular = ks * specPow * ir;
+    float g_specular = ks * specPow * ig;
+    float b_specular = ks * specPow * ib;
+
+    //store the final color
+    float newColorR = r_ambient + r_diffuse + r_specular;
+    float newColorG = g_ambient + g_diffuse + g_specular;
+    float newColorB = b_ambient + b_diffuse + b_specular;
+
+    //keep transparency of color passed as argument
+    glm::vec3 resultColor = glm::vec3(newColorR,newColorG,newColorB);
+
+    return resultColor;
 }
 
 // ======= DO NOT MODIFY THIS FUNCTION ========
