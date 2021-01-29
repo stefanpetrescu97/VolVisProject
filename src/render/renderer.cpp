@@ -188,11 +188,11 @@ glm::vec4 Renderer::traceRayISO(const Ray& ray, float sampleStep) const
     //current selected iso value; this can change depending on user input
     float isoValCurrent = m_config.isoValue;
 
-    //position of intersection: it means that at this location the value of the interpolated voxel is greater than the isoValue
-    glm::vec3 isoValueSample;
-
     glm::vec3 samplePos = ray.origin + ray.tmin * ray.direction;
     const glm::vec3 increment = sampleStep * ray.direction;
+
+    //precise value computed using bisection accuracy
+    glm::vec3 preciseSamplePos;
 
     if(!m_config.volumeShading){
         //if volume shading is OFF
@@ -212,10 +212,15 @@ glm::vec4 Renderer::traceRayISO(const Ray& ray, float sampleStep) const
         for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
             const float val = m_pVolume->getVoxelInterpolate(samplePos);
             if(val > isoValCurrent){
-                isoValueSample = samplePos;
+                //if found isosurface then => search for precise sample value using bisection
+                float preciseValue = bisectionAccuracy(ray, t-sampleStep, t, isoValCurrent);
+                preciseSamplePos = ray.origin + preciseValue * ray.direction;
 
-                //get the gradient at this position
-                volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(isoValueSample);
+                //get the gradient at the precise position
+                volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(preciseSamplePos);
+
+                //previous implementation without bisection => we simlpy get the gradient by using samplePos instead of preciseSamplePos
+                //volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(samplePos);
 
                 //return the shaded color
                 return glm::vec4(computePhongShading(isoColor, gradient, m_pCamera->forward(), ray.direction), 1.0f);
@@ -232,8 +237,41 @@ glm::vec4 Renderer::traceRayISO(const Ray& ray, float sampleStep) const
 // closely matches the iso value (less than 0.01 difference). Add a limit to the number of
 // iterations such that it does not get stuck in degerate cases.
 float Renderer::bisectionAccuracy(const Ray& ray, float t0, float t1, float isoValue) const
-{
-    return 0.0f;
+{   
+    int numberOfIterations = 10;
+    float thresholdDifference = 0.01;
+
+    //step value exactly at the middle of [t0, t1] interval
+    float middleOfInterval;
+
+    //the value which will enable us to tell if the voxel value at step tMiddleInterval is > or < than isoValue
+    float val;
+
+    for(int i = 0; i < numberOfIterations; i++){
+        //assign to middleOfInterval middle of interval [t0, t1]
+        middleOfInterval = (t0 + t1)/2;
+
+        //compute the voxel sample position at step tMiddleInterval
+        glm::vec3 tMiddleSamplePos = ray.origin + middleOfInterval * ray.direction;
+
+        //interpolate voxel value at tMiddleSamplePos sample position
+        val = m_pVolume->getVoxelInterpolate(tMiddleSamplePos);
+
+        //check end condition / change interval ends [t0, t1] for further iterations
+        if(abs(val - isoValue) < thresholdDifference){
+            break;
+            //return middleOfInterval;
+        }else if(val > isoValue){
+            //t0 = t0;
+            t1 = middleOfInterval;
+        }else{
+            t0 = middleOfInterval;
+            //t1 = t1;
+        }
+    }
+
+    //return best found step
+    return middleOfInterval;
 }
 
 // ======= TODO: IMPLEMENT ========
@@ -386,6 +424,23 @@ glm::vec3 Renderer::computePhongShading(const glm::vec3& color, const volume::Gr
     float newColorR = r_ambient + r_diffuse + r_specular;
     float newColorG = g_ambient + g_diffuse + g_specular;
     float newColorB = b_ambient + b_diffuse + b_specular;
+
+    //clamp the color values if >1 || <0
+    if(newColorR > 1){
+        newColorR = 1;
+    }else if(newColorR < 0){
+        newColorR = 0;
+    }
+    if(newColorG > 1){
+        newColorG = 1;
+    }else if(newColorG < 0){
+        newColorG = 0;
+    }
+    if(newColorB > 1){
+        newColorB = 1;
+    }else if(newColorB < 0){
+        newColorB = 0;
+    }
 
     //keep transparency of color passed as argument
     glm::vec3 resultColor = glm::vec3(newColorR,newColorG,newColorB);

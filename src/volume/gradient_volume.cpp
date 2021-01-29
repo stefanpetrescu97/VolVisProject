@@ -136,7 +136,6 @@ GradientVoxel GradientVolume::getGradientVoxelLinearInterpolate(const glm::vec3&
     const GradientVoxel t5 = linearInterpolate(t2, t3, fac_y);
     const GradientVoxel t6 = linearInterpolate(t4, t5, fac_z);
     return t6;
-
 }
 
 // ======= TODO : IMPLEMENT ========
@@ -149,7 +148,7 @@ GradientVoxel GradientVolume::linearInterpolate(const GradientVoxel& g0, const G
     result.dir.x = g1.dir.x*factor+g0.dir.x*(1-factor);
     result.dir.y = g1.dir.y*factor+g0.dir.y*(1-factor);
     result.dir.z = g1.dir.z*factor+g0.dir.z*(1-factor);
-    result.magnitude = (float) sqrt(result.dir.x * result.dir.x + result.dir.y * result.dir.y + result.dir.z * result.dir.z);
+    result.magnitude = sqrt(result.dir.x * result.dir.x + result.dir.y * result.dir.y + result.dir.z * result.dir.z);
     return result;
 }
 
