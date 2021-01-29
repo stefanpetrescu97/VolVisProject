@@ -361,8 +361,8 @@ glm::vec4 Renderer::traceRayTF2D(const Ray& ray, float sampleStep) const
     //for every sample, accumulate the opacity
     for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
         const float val = m_pVolume->getVoxelInterpolate(samplePos);
-        const float gradient = m_pVolume->getVoxelInterpolate(m_pGradientVolume->getGradientVoxel(samplePos));
-        float opacity = getTF2DOpacity(val, gradient);
+        const float magnitude = m_pGradientVolume->getGradientVoxel(samplePos).magnitude;
+        float opacity = getTF2DOpacity(val, magnitude);
 
         comp_op.a = comp_op.a + (1.0f - comp_op.a) * opacity;
         comp_op.r = comp_op.r + comp_op.a * opacity * m_config.TF2DColor.r;
@@ -492,13 +492,14 @@ float Renderer::getTF2DOpacity(float intensity, float gradientMagnitude) const
     float radius = m_config.TF2DRadius;
     float center = m_config.TF2DIntensity;
 
-    float radiusatgradient = radius * (1.0f - gradientMagnitude);
-    if (intensity < center - radiusatgradient || intensity > center > radiusatgradient) {
+    float radiusatgradient = radius * (gradientMagnitude / 256.0f);
+    // std::cout << gradientMagnitude << std::endl;
+    if (intensity < center - radiusatgradient || intensity > center + radiusatgradient) {
         return 0.0f;
     }
 
     intensity = abs(intensity - center);
-    float res = 1.0f - (intensity/radius);
+    float res = 1.0f - (intensity/radiusatgradient);
 
     if (res <= 0.0f) {
         return 0.0f;
