@@ -300,6 +300,9 @@ glm::vec4 Renderer::traceRayComposite(const Ray& ray, float sampleStep) const
             comp_col.g = comp_col.g + (1.0 - comp_col.a) * color.a * color.g;
             comp_col.b = comp_col.b + (1.0 - comp_col.a) * color.a * color.b;
             comp_col.a = comp_col.a + (1.0 - comp_col.a) * color.a;
+            if (1-comp_col.a <= 0.01){
+                return comp_col;
+            }
         }
     
         return comp_col;
@@ -339,6 +342,9 @@ glm::vec4 Renderer::traceRayComposite(const Ray& ray, float sampleStep) const
             comp_col.b = comp_col.b + (1.0 - comp_col.a) * color.a * color.b;
             comp_col.a = comp_col.a + (1.0 - comp_col.a) * color.a;
 
+            if (1-comp_col.a <= 0.01){
+                return comp_col;
+            }
         }
         return comp_col;
     }
@@ -368,6 +374,10 @@ glm::vec4 Renderer::traceRayTF2D(const Ray& ray, float sampleStep) const
         comp_op.r = comp_op.r + (1-comp_op.a) * opacity * m_config.TF2DColor.r;
         comp_op.g = comp_op.g + (1-comp_op.a) * opacity * m_config.TF2DColor.g;
         comp_op.b = comp_op.b + (1-comp_op.a) * opacity * m_config.TF2DColor.b;
+
+        if (1-comp_op.a <= 0.01){
+            return comp_op;
+        }
     }
 
     return comp_op;
@@ -382,7 +392,7 @@ glm::vec4 Renderer::traceRayTF2D(const Ray& ray, float sampleStep) const
 // You are free to choose any specular power that you'd like.
 glm::vec3 Renderer::computePhongShading(const glm::vec3& color, const volume::GradientVoxel& gradient, const glm::vec3& L, const glm::vec3& V)
 {
-    //if no gradient magnitude return transparent
+    //if gradient magnitude is null return a transparent voxel
     if(gradient.magnitude == 0){
         return glm::vec3(0);
     }
@@ -392,8 +402,6 @@ glm::vec3 Renderer::computePhongShading(const glm::vec3& color, const volume::Gr
     float kd = 0.7f;//diffuse
     float ks = 0.2f;//specular
     float a = 100;
-    //formula implemented:
-    //intensity = ka*ia + kd*(L^ dot N^ )*id + ks*(r^ dot v^)^a*is;
 
     //set the colors; compute the 3 bands separately
     float ir = (float) color.r;
@@ -401,18 +409,19 @@ glm::vec3 Renderer::computePhongShading(const glm::vec3& color, const volume::Gr
     float ib = (float) color.b;
     
 
-    //setup the necessary variables
+    // compute light vector
     glm::vec3 toLight((float) -L[0], (float) -L[1], (float) -L[2]);
     glm::vec3 toLightN = glm::normalize(toLight);
 
+    // compute view vector
     glm::vec3 toView((float) -V[0], (float) -V[1], (float) -V[2]);
     glm::vec3 toViewN = glm::normalize(toView);
 
+    //compute normal vector
     glm::vec3 normal((float) -gradient.dir.x, (float) -gradient.dir.y, (float) -gradient.dir.z);
-    //glm::vec3 normalN = normal/gradient.magnitude;
     glm::vec3 normalN = glm::normalize(normal);
 
-    //compute light reflection
+    //compute light reflection vector
     float dotp = glm::dot(toLightN, normalN);
     glm::vec3 scaled = normalN * (2*dotp);
 
@@ -436,6 +445,7 @@ glm::vec3 Renderer::computePhongShading(const glm::vec3& color, const volume::Gr
 
     //final step in computing the specular light reflection
     float specPow =  (float) pow(glm::dot(rN, toViewN), a);
+
     //store specular color
     float r_specular = ks * specPow * ir;
     float g_specular = ks * specPow * ig;
@@ -489,14 +499,31 @@ glm::vec4 Renderer::getTFValue(float val) const
 // The 2D transfer function settings can be accessed through m_config.TF2DIntensity and m_config.TF2DRadius.
 float Renderer::getTF2DOpacity(float intensity, float gradientMagnitude) const
 {
+    /*float radius = m_config.TF2DRadius;
+    float center = m_config.TF2DIntensity;
+
+    float radiusatgradient = radius * (gradientMagnitude / 256.0f);
+    // std::cout << gradientMagnitude << std::endl;
+    if (intensity < center - radiusatgradient || intensity > center + radiusatgradient) {
+        return 0.0f;
+    }
+
+    intensity = abs(intensity - center);
+    float res = 1.0f - (intensity/radiusatgradient);
+
+    if (res <= 0.0f) {
+        return 0.0f;
+    }
+    return res;*/
     
     double opacity = 0.0;
 
     // retrieve widget data
     const float radius = m_config.TF2DRadius;
     const float maxmag = m_pGradientVolume->maxMagnitude();
-    const double wid_angle = glm::atan(radius/maxmag);
 
+    // compute the widget angle between apex and side of triangle
+    const double wid_angle = glm::atan(radius/maxmag);
     // compute point angle
     double point_angle = glm::atan(glm::abs(intensity-m_config.TF2DIntensity)/gradientMagnitude);
     
