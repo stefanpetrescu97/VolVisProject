@@ -498,24 +498,7 @@ glm::vec4 Renderer::getTFValue(float val) const
 //
 // The 2D transfer function settings can be accessed through m_config.TF2DIntensity and m_config.TF2DRadius.
 float Renderer::getTF2DOpacity(float intensity, float gradientMagnitude) const
-{
-    /*float radius = m_config.TF2DRadius;
-    float center = m_config.TF2DIntensity;
-
-    float radiusatgradient = radius * (gradientMagnitude / 256.0f);
-    // std::cout << gradientMagnitude << std::endl;
-    if (intensity < center - radiusatgradient || intensity > center + radiusatgradient) {
-        return 0.0f;
-    }
-
-    intensity = abs(intensity - center);
-    float res = 1.0f - (intensity/radiusatgradient);
-
-    if (res <= 0.0f) {
-        return 0.0f;
-    }
-    return res;*/
-    
+{   
     double opacity = 0.0;
 
     // retrieve widget data
