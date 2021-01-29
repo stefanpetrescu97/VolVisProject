@@ -358,7 +358,7 @@ glm::vec4 Renderer::traceRayTF2D(const Ray& ray, float sampleStep) const
     //initialize the accumulated color and opacity
     glm::vec4 comp_op = glm::vec4(0.0f);
 
-    //for every sample, accumulate the opacity
+    //for every sample, accumulate the opacity and color
     for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
         const float val = m_pVolume->getVoxelInterpolate(samplePos);
         const float magnitude = m_pGradientVolume->getGradientVoxel(samplePos).magnitude;
@@ -489,18 +489,23 @@ glm::vec4 Renderer::getTFValue(float val) const
 // The 2D transfer function settings can be accessed through m_config.TF2DIntensity and m_config.TF2DRadius.
 float Renderer::getTF2DOpacity(float intensity, float gradientMagnitude) const
 {
+    // Retrieve triangle center and radius.
     float radius = m_config.TF2DRadius;
     float center = m_config.TF2DIntensity;
-
+    
+    // The exact size of the radius at the gradientMagnitude level.
     float radiusatgradient = radius * (gradientMagnitude / 256.0f);
-    // std::cout << gradientMagnitude << std::endl;
+    // Everything outside the triangle has an opacity of zero.
     if (intensity < center - radiusatgradient || intensity > center + radiusatgradient) {
         return 0.0f;
     }
 
+    // Bring intensity to point with a positive distance from 0.
     intensity = abs(intensity - center);
+    // Check how far it is from 0 compared to the size of the radius to return a value between 0.0 and 1.0
     float res = 1.0f - (intensity/radiusatgradient);
 
+    // Edge case for safety, if a value goes below 0.0 opacity, return 0.0
     if (res <= 0.0f) {
         return 0.0f;
     }
