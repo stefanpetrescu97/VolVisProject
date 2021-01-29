@@ -10,6 +10,11 @@
 #include <tbb/parallel_for.h>
 #include <tuple>
 
+//new library added for normalization
+#include <glm/glm.hpp>
+
+//#include <glm>
+
 namespace render {
 
 // The renderer is passed a pointer to the volume, gradinet volume, camera and an initial renderConfig.
@@ -178,10 +183,53 @@ glm::vec4 Renderer::traceRayMIP(const Ray& ray, float sampleStep) const
 // Use the bisectionAccuracy function (to be implemented) to get a more precise isosurface location between two steps.
 glm::vec4 Renderer::traceRayISO(const Ray& ray, float sampleStep) const
 {
-    static constexpr glm::vec3 isoColor { 0.8f, 0.8f, 0.2f };
-
+    static constexpr glm::vec3 isoColor {0.8f, 0.8f, 0.2f};
     
-    return glm::vec4(isoColor, 1.0f);
+    //current selected iso value; this can change depending on user input
+    float isoValCurrent = m_config.isoValue;
+
+    glm::vec3 samplePos = ray.origin + ray.tmin * ray.direction;
+    const glm::vec3 increment = sampleStep * ray.direction;
+
+    //precise value computed using bisection accuracy
+    glm::vec3 preciseSamplePos;
+
+    if(!m_config.volumeShading){
+        //if volume shading is OFF
+        //sample along the ray until an isosurface
+        for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+            const float val = m_pVolume->getVoxelInterpolate(samplePos);
+            if(val > isoValCurrent){
+                return glm::vec4(isoColor, 1.0f);
+            }
+        }
+        //if no surface found for which the interpolated voxel value is greater than the isovalue => the pixel is not on the surface
+        //return a pixel of 0 opacity
+        return glm::vec4(0.0f);
+    }else{
+        //if volume shading is ON
+        //sample along the ray until an isosurface
+        for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+            const float val = m_pVolume->getVoxelInterpolate(samplePos);
+            if(val > isoValCurrent){
+                //if found isosurface then => search for precise sample value using bisection
+                float preciseValue = bisectionAccuracy(ray, t-sampleStep, t, isoValCurrent);
+                preciseSamplePos = ray.origin + preciseValue * ray.direction;
+
+                //get the gradient at the precise position
+                volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(preciseSamplePos);
+
+                //previous implementation without bisection => we simlpy get the gradient by using samplePos instead of preciseSamplePos
+                //volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(samplePos);
+
+                //return the shaded color
+                return glm::vec4(computePhongShading(isoColor, gradient, m_pCamera->forward(), ray.direction), 1.0f);
+            }
+        }
+        //if no surface found for which the interpolated voxel value is greater than the isovalue => the pixel is not on the surface
+        //return a pixel of 0 opacity
+        return glm::vec4(0.0f);
+    }
 }
 
 // ======= TODO: IMPLEMENT ========
@@ -189,8 +237,41 @@ glm::vec4 Renderer::traceRayISO(const Ray& ray, float sampleStep) const
 // closely matches the iso value (less than 0.01 difference). Add a limit to the number of
 // iterations such that it does not get stuck in degerate cases.
 float Renderer::bisectionAccuracy(const Ray& ray, float t0, float t1, float isoValue) const
-{
-    return 0.0f;
+{   
+    int numberOfIterations = 10;
+    float thresholdDifference = 0.01;
+
+    //step value exactly at the middle of [t0, t1] interval
+    float middleOfInterval;
+
+    //the value which will enable us to tell if the voxel value at step tMiddleInterval is > or < than isoValue
+    float val;
+
+    for(int i = 0; i < numberOfIterations; i++){
+        //assign to middleOfInterval middle of interval [t0, t1]
+        middleOfInterval = (t0 + t1)/2;
+
+        //compute the voxel sample position at step tMiddleInterval
+        glm::vec3 tMiddleSamplePos = ray.origin + middleOfInterval * ray.direction;
+
+        //interpolate voxel value at tMiddleSamplePos sample position
+        val = m_pVolume->getVoxelInterpolate(tMiddleSamplePos);
+
+        //check end condition / change interval ends [t0, t1] for further iterations
+        if(abs(val - isoValue) < thresholdDifference){
+            break;
+            //return middleOfInterval;
+        }else if(val > isoValue){
+            //t0 = t0;
+            t1 = middleOfInterval;
+        }else{
+            t0 = middleOfInterval;
+            //t1 = t1;
+        }
+    }
+
+    //return best found step
+    return middleOfInterval;
 }
 
 // ======= TODO: IMPLEMENT ========
@@ -198,6 +279,8 @@ float Renderer::bisectionAccuracy(const Ray& ray, float t0, float t1, float isoV
 // Use getTFValue to compute the color for a given volume value according to the 1D transfer function.
 glm::vec4 Renderer::traceRayComposite(const Ray& ray, float sampleStep) const
 {
+    //refactored traceRayComposite() function in order to work with shading as well
+    
     //initialize the sample position to the beginning of the volume
     glm::vec3 samplePos = ray.origin + ray.tmin * ray.direction;
 
@@ -207,18 +290,58 @@ glm::vec4 Renderer::traceRayComposite(const Ray& ray, float sampleStep) const
     //initialize the accumulated color and opacity
     glm::vec4 comp_col = glm::vec4(0.0f);
 
-    //for every sample, accumulate the opacity and color
-    for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
-        const float val = m_pVolume->getVoxelInterpolate(samplePos);
-        glm::vec4 color = getTFValue(val);
-
-        comp_col.r = comp_col.r + (1.0 - comp_col.a) * color.a * color.r;
-        comp_col.g = comp_col.g + (1.0 - comp_col.a) * color.a * color.g;
-        comp_col.b = comp_col.b + (1.0 - comp_col.a) * color.a * color.b;
-        comp_col.a = comp_col.a + (1.0 - comp_col.a) * color.a;
-    }
+    if(!m_config.volumeShading){
+        //if volume shading is OFF
+        //for every sample, accumulate the opacity and color
+        for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+            const float val = m_pVolume->getVoxelInterpolate(samplePos);
+            glm::vec4 color = getTFValue(val);
+            comp_col.r = comp_col.r + (1.0 - comp_col.a) * color.a * color.r;
+            comp_col.g = comp_col.g + (1.0 - comp_col.a) * color.a * color.g;
+            comp_col.b = comp_col.b + (1.0 - comp_col.a) * color.a * color.b;
+            comp_col.a = comp_col.a + (1.0 - comp_col.a) * color.a;
+        }
     
-    return comp_col;
+        return comp_col;
+
+    }else{
+        //if volume shading is ON
+        for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+
+            //get the current val for the voxel
+            const float val = m_pVolume->getVoxelInterpolate(samplePos);
+
+            //use the TF to get the color
+            glm::vec4 color = getTFValue(val);
+
+            //get the gradient at the sample position
+            volume::GradientVoxel gradient = m_pGradientVolume->getGradientVoxel(samplePos);
+
+            //check if its magnitude is smaller than a certain threshold (so for example if the gradient.magnitude is smaller than 0.0001 I consider it 0)
+            if(gradient.magnitude < 0.0001){
+                gradient.magnitude = 0;
+            }
+
+            //construct color vec3 in order to pass as parameter (as the current color vector is v4)
+            glm::vec3 paramColorForShading(color.r, color.g, color.b);
+
+            //get the shaded color by calling the computePhongShading (as the first two params I pass the previously computed gradient and the previously computed color)
+            glm::vec3 shadedColor = computePhongShading(paramColorForShading, gradient, m_pCamera->forward(), ray.direction);
+            
+            //construct the shaded color, using the returned shaded RGB colors and also the previous color.a
+            glm::vec4 finalShadedColor(shadedColor, color.a);
+
+            color = finalShadedColor;
+
+            //composite using the color returned by the computePhongShading function
+            comp_col.r = comp_col.r + (1.0 - comp_col.a) * color.a * color.r;
+            comp_col.g = comp_col.g + (1.0 - comp_col.a) * color.a * color.g;
+            comp_col.b = comp_col.b + (1.0 - comp_col.a) * color.a * color.b;
+            comp_col.a = comp_col.a + (1.0 - comp_col.a) * color.a;
+
+        }
+        return comp_col;
+    }
 }
 
 // ======= TODO: IMPLEMENT ========
@@ -226,7 +349,28 @@ glm::vec4 Renderer::traceRayComposite(const Ray& ray, float sampleStep) const
 // Use the getTF2DOpacity function that you implemented to compute the opacity according to the 2D transfer function.
 glm::vec4 Renderer::traceRayTF2D(const Ray& ray, float sampleStep) const
 {
-    return glm::vec4(0.0f);
+    //initialize the sample position to the beginning of the volume
+    glm::vec3 samplePos = ray.origin + ray.tmin * ray.direction;
+
+    //compute the size of the increment for each step
+    const glm::vec3 increment = sampleStep * ray.direction;
+
+    //initialize the accumulated color and opacity
+    glm::vec4 comp_op = glm::vec4(0.0f);
+
+    //for every sample, accumulate the opacity
+    for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+        const float val = m_pVolume->getVoxelInterpolate(samplePos);
+        const float magnitude = m_pGradientVolume->getGradientVoxel(samplePos).magnitude;
+        float opacity = getTF2DOpacity(val, magnitude) * m_config.TF2DColor.w;
+
+        comp_op.a = comp_op.a + (1.0f - comp_op.a) * opacity;
+        comp_op.r = comp_op.r + (1-comp_op.a) * opacity * m_config.TF2DColor.r;
+        comp_op.g = comp_op.g + (1-comp_op.a) * opacity * m_config.TF2DColor.g;
+        comp_op.b = comp_op.b + (1-comp_op.a) * opacity * m_config.TF2DColor.b;
+    }
+
+    return comp_op;
 }
 
 // ======= TODO: IMPLEMENT ========
@@ -238,7 +382,91 @@ glm::vec4 Renderer::traceRayTF2D(const Ray& ray, float sampleStep) const
 // You are free to choose any specular power that you'd like.
 glm::vec3 Renderer::computePhongShading(const glm::vec3& color, const volume::GradientVoxel& gradient, const glm::vec3& L, const glm::vec3& V)
 {
-    return glm::vec3(0.0f);
+    //if no gradient magnitude return transparent
+    if(gradient.magnitude == 0){
+        return glm::vec3(0);
+    }
+
+    //reflectiveness constants
+    float ka = 0.1f;//ambient
+    float kd = 0.7f;//diffuse
+    float ks = 0.2f;//specular
+    float a = 100;
+    //formula implemented:
+    //intensity = ka*ia + kd*(L^ dot N^ )*id + ks*(r^ dot v^)^a*is;
+
+    //set the colors; compute the 3 bands separately
+    float ir = (float) color.r;
+    float ig = (float) color.g;
+    float ib = (float) color.b;
+    
+
+    //setup the necessary variables
+    glm::vec3 toLight((float) -L[0], (float) -L[1], (float) -L[2]);
+    glm::vec3 toLightN = glm::normalize(toLight);
+
+    glm::vec3 toView((float) -V[0], (float) -V[1], (float) -V[2]);
+    glm::vec3 toViewN = glm::normalize(toView);
+
+    glm::vec3 normal((float) -gradient.dir.x, (float) -gradient.dir.y, (float) -gradient.dir.z);
+    //glm::vec3 normalN = normal/gradient.magnitude;
+    glm::vec3 normalN = glm::normalize(normal);
+
+    //compute light reflection
+    float dotp = glm::dot(toLightN, normalN);
+    glm::vec3 scaled = normalN * (2*dotp);
+
+    // rN is the the direction taken by a perfect reflection of the light source on the surface
+    glm::vec3 rN = scaled - toLightN;
+
+    //store ambient color
+    float r_ambient = ka * ir;
+    float g_ambient = ka * ig;
+    float b_ambient = ka * ib;
+
+    //check if normal is in correct direction, if light is orthogonal(or larger angle) to the surface only use ambient lighting
+    if(glm::atan(glm::acos(glm::dot(toLight, normal))) >= 90){
+        return glm::vec3(r_ambient,g_ambient,b_ambient);
+    }
+
+    //store diffuse color
+    float r_diffuse = kd * glm::dot(toLightN, normalN) * ir;
+    float g_diffuse = kd * glm::dot(toLightN, normalN) * ig;
+    float b_diffuse = kd * glm::dot(toLightN, normalN) * ib;
+
+    //final step in computing the specular light reflection
+    float specPow =  (float) pow(glm::dot(rN, toViewN), a);
+    //store specular color
+    float r_specular = ks * specPow * ir;
+    float g_specular = ks * specPow * ig;
+    float b_specular = ks * specPow * ib;
+
+    //store the final color
+    float newColorR = r_ambient + r_diffuse + r_specular;
+    float newColorG = g_ambient + g_diffuse + g_specular;
+    float newColorB = b_ambient + b_diffuse + b_specular;
+
+    //clamp the color values if >1 || <0
+    if(newColorR > 1){
+        newColorR = 1;
+    }else if(newColorR < 0){
+        newColorR = 0;
+    }
+    if(newColorG > 1){
+        newColorG = 1;
+    }else if(newColorG < 0){
+        newColorG = 0;
+    }
+    if(newColorB > 1){
+        newColorB = 1;
+    }else if(newColorB < 0){
+        newColorB = 0;
+    }
+
+    //keep transparency of color passed as argument
+    glm::vec3 resultColor = glm::vec3(newColorR,newColorG,newColorB);
+
+    return resultColor;
 }
 
 // ======= DO NOT MODIFY THIS FUNCTION ========
@@ -261,7 +489,23 @@ glm::vec4 Renderer::getTFValue(float val) const
 // The 2D transfer function settings can be accessed through m_config.TF2DIntensity and m_config.TF2DRadius.
 float Renderer::getTF2DOpacity(float intensity, float gradientMagnitude) const
 {
-    return 0.0f;
+    
+    double opacity = 0.0;
+
+    // retrieve widget data
+    const float radius = m_config.TF2DRadius;
+    const float maxmag = m_pGradientVolume->maxMagnitude();
+    const double wid_angle = glm::atan(radius/maxmag);
+
+    // compute point angle
+    double point_angle = glm::atan(glm::abs(intensity-m_config.TF2DIntensity)/gradientMagnitude);
+    
+    // if the point is not inside the angle or if its gradient is negative, just return 0
+    if(point_angle < wid_angle && gradientMagnitude > 0){
+        opacity = 1-(point_angle/wid_angle);
+    }
+    
+    return opacity;
 }
 
 // This function computes if a ray intersects with the axis-aligned bounding box around the volume.

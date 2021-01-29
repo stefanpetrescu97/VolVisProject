@@ -110,12 +110,32 @@ GradientVoxel GradientVolume::getGradientVoxelNN(const glm::vec3& coord) const
     return getGradientVoxel(roundToPositiveInt(coord.x), roundToPositiveInt(coord.y), roundToPositiveInt(coord.z));
 }
 
+
 // ======= TODO : IMPLEMENT ========
 // Returns the trilinearly interpolated gradinet at the given coordinate.
 // Use the linearInterpolate function that you implemented below.
 GradientVoxel GradientVolume::getGradientVoxelLinearInterpolate(const glm::vec3& coord) const
 {
-    return GradientVoxel {};
+    //implementation inspired by function in volume.cpp class
+    if (glm::any(glm::lessThan(coord, glm::vec3(0))) || glm::any(glm::greaterThanEqual(coord, glm::vec3(m_dim - 1))))
+        return {glm::vec3(0.0f), 0.0f};
+
+    const int x = static_cast<int>(coord.x);
+    const int y = static_cast<int>(coord.y);
+    const int z = static_cast<int>(coord.z);
+
+    const float fac_x = coord.x - float(x);
+    const float fac_y = coord.y - float(y);
+    const float fac_z = coord.z - float(z);
+
+    const GradientVoxel t0 = linearInterpolate(getGradientVoxel(x, y, z), getGradientVoxel(x + 1, y, z), fac_x);
+    const GradientVoxel t1 = linearInterpolate(getGradientVoxel(x, y + 1, z), getGradientVoxel(x + 1, y + 1, z), fac_x);
+    const GradientVoxel t2 = linearInterpolate(getGradientVoxel(x, y, z + 1), getGradientVoxel(x + 1, y, z + 1), fac_x);
+    const GradientVoxel t3 = linearInterpolate(getGradientVoxel(x, y + 1, z + 1), getGradientVoxel(x + 1, y + 1, z + 1), fac_x);
+    const GradientVoxel t4 = linearInterpolate(t0, t1, fac_y);
+    const GradientVoxel t5 = linearInterpolate(t2, t3, fac_y);
+    const GradientVoxel t6 = linearInterpolate(t4, t5, fac_z);
+    return t6;
 }
 
 // ======= TODO : IMPLEMENT ========
@@ -123,7 +143,13 @@ GradientVoxel GradientVolume::getGradientVoxelLinearInterpolate(const glm::vec3&
 // At t=0, linearInterpolate should return g0 and at t=1 it returns g1.
 GradientVoxel GradientVolume::linearInterpolate(const GradientVoxel& g0, const GradientVoxel& g1, float factor)
 {
-    return GradientVoxel {};
+    //code inspired by linearInterpolate in volume.cpp
+    GradientVoxel result;
+    result.dir.x = g1.dir.x*factor+g0.dir.x*(1-factor);
+    result.dir.y = g1.dir.y*factor+g0.dir.y*(1-factor);
+    result.dir.z = g1.dir.z*factor+g0.dir.z*(1-factor);
+    result.magnitude = sqrt(result.dir.x * result.dir.x + result.dir.y * result.dir.y + result.dir.z * result.dir.z);
+    return result;
 }
 
 // This function returns a gradientVoxel without using interpolation
